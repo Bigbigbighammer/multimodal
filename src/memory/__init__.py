@@ -5,6 +5,7 @@ This package provides:
 - ActionRecord: Records of individual actions
 - SubGoal: Subgoal representation for task decomposition
 - SpatialMap: Topological map with A* path planning
+- EpisodeHistory: Episode trajectory recording
 """
 
 from src.memory.working_memory import ActionRecord, SubGoal, WorkingMemory
@@ -14,6 +15,7 @@ from src.memory.spatial_map import (
     TopologicalMap,
     euclidean_distance,
 )
+from src.memory.episode_history import EpisodeHistory, StepRecord
 
 __all__ = [
     "ActionRecord",
@@ -23,4 +25,6 @@ __all__ = [
     "Position",
     "TopologicalMap",
     "euclidean_distance",
+    "EpisodeHistory",
+    "StepRecord",
 ]
