@@ -30,7 +30,8 @@ class ThorSettings:
 class PerceptionSettings:
     """Perception model settings for CLIP and YOLO."""
     # CLIP settings
-    clip_model: str = "ViT-B/32"
+    clip_model: str = "ViT-B-32"
+    clip_pretrained: str = "laion2b_s34b_b79k"
     clip_match_threshold: float = 0.25  # Cosine similarity threshold for matching
 
     # YOLO settings
@@ -115,6 +116,7 @@ class MemorySettings:
 class EvaluationSettings:
     """Evaluation and visualization settings."""
     # Metrics
+    num_episodes_per_scene: int = 3
     success_distance_threshold: float = 1.0
     success_angle_threshold: float = 30.0  # Degrees
 
