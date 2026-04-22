@@ -1,0 +1,52 @@
+task_type: objectnav
+description: Object Goal Navigation - navigate to a target object category
+
+episodes:
+  - scene: FloorPlan1
+    target_object: Chair
+    initial_position: {x: 1.0, y: 0.0, z: 2.0}
+    initial_rotation: {x: 0, y: 90}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan1
+    target_object: Television
+    initial_position: {x: 3.0, y: 0.0, z: 1.5}
+    initial_rotation: {x: 0, y: 0}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan2
+    target_object: DiningTable
+    initial_position: {x: 0.0, y: 0.0, z: 0.0}
+    initial_rotation: {x: 0, y: 0}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan2
+    target_object: Sofa
+    initial_position: {x: 2.0, y: 0.0, z: 3.0}
+    initial_rotation: {x: 0, y: 180}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan3
+    target_object: Bed
+    initial_position: {x: 1.0, y: 0.0, z: 1.0}
+    initial_rotation: {x: 0, y: 90}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan4
+    target_object: Desk
+    initial_position: {x: 0.5, y: 0.0, z: 1.5}
+    initial_rotation: {x: 0, y: 45}
+    success_distance: 1.0
+    max_steps: 200
+
+  - scene: FloorPlan5
+    target_object: Refrigerator
+    initial_position: {x: 2.0, y: 0.0, z: 2.0}
+    initial_rotation: {x: 0, y: 270}
+    success_distance: 1.0
+    max_steps: 200

@@ -1,0 +1,38 @@
+task_type: interaction
+description: Simple Interaction - multi-step instructions with object manipulation
+
+episodes:
+  - scene: FloorPlan5
+    instruction: "走到桌子旁，拿起苹果"
+    initial_position: {x: 2.0, y: 0.0, z: 3.0}
+    initial_rotation: {x: 0, y: 180}
+    success_distance: 1.0
+    max_steps: 300
+
+  - scene: FloorPlan1
+    instruction: "找到椅子，然后走到它旁边"
+    initial_position: {x: 0.0, y: 0.0, z: 0.0}
+    initial_rotation: {x: 0, y: 0}
+    success_distance: 1.0
+    max_steps: 300
+
+  - scene: FloorPlan2
+    instruction: "走到冰箱旁边，打开它"
+    initial_position: {x: 1.0, y: 0.0, z: 1.0}
+    initial_rotation: {x: 0, y: 90}
+    success_distance: 1.0
+    max_steps: 300
+
+  - scene: FloorPlan3
+    instruction: "找到床边的桌子，然后拿起杯子"
+    initial_position: {x: 0.5, y: 0.0, z: 2.0}
+    initial_rotation: {x: 0, y: 270}
+    success_distance: 1.0
+    max_steps: 300
+
+  - scene: FloorPlan4
+    instruction: "走到沙发旁边，检查周围"
+    initial_position: {x: 3.0, y: 0.0, z: 1.0}
+    initial_rotation: {x: 0, y: 45}
+    success_distance: 1.0
+    max_steps: 300
