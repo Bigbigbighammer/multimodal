@@ -23,7 +23,7 @@ except ImportError:
     THOR_AVAILABLE = False
     ai2thor = None
 
-from config.settings import Settings, default_settings
+from src.config.settings import Settings, default_settings
 
 logger = logging.getLogger(__name__)
 
