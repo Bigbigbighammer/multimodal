@@ -8,7 +8,7 @@ status: approved
 
 ## Overview
 
-Build a "Vision + Language" embodied navigation/interaction agent in AI2-THOR, using LangChain 1.0 + LangGraph for agent orchestration. The architecture follows Claude Code's Plan→Execute→Verify→Adapt pattern with three-layer hierarchical planning.
+Build a "Vision + Language" embodied navigation/interaction agent in AI2-THOR, using LangChain (0.3.x) + LangGraph (0.2.x) for agent orchestration. The architecture follows Claude Code's Plan→Execute→Verify→Adapt pattern with three-layer hierarchical planning.
 
 ## Constraints
 
@@ -55,11 +55,19 @@ Raw AI2-THOR interface wrapper.
 
 ```python
 class ThorController:
-    def step(action: str, **kwargs) -> ThorObservation
+    def step(action: str, **kwargs) -> StepResult
+        # Returns StepResult(action_success, observation, error)
     def reset(scene_name: str, initial_position: dict) -> ThorObservation
     def get_reachable_positions() -> List[dict]
     def get_current_state() -> AgentState
 ```
+
+**Error handling:**
+- `ThorController.step()` returns `StepResult(success, observation, error)`, never raises
+- AI2-THOR API failures (event.metadata['lastActionSuccess'] == False) are wrapped in StepResult
+- LLM API errors (timeout, rate limit) trigger retry with exponential backoff (max 3 retries)
+- CLIP/YOLO inference errors are caught and logged; perception returns empty results gracefully
+- All errors flow up to the recovery system in the Navigator/Planner layer
 
 ### Layer 2: NavigatorAgent (Middle)
 
@@ -79,6 +87,19 @@ class NavigatorAgent:
 4. Cosine similarity → best matching object
 5. A* path planning on topological map → execute movement steps
 6. Re-perceive at each step
+
+**Topological map path planning (Navigator → Controller integration):**
+
+Edge construction:
+- After `get_reachable_positions()`, connect positions within `MOVE_DISTANCE * 1.2` (AI2-THOR MoveAhead moves ~0.25m by default; edges connect positions ≤ 0.30m apart)
+- Edge cost: Euclidean distance between positions
+
+Path-to-actions translation:
+- Given an A* path of positions [p0, p1, ..., pn], convert each segment (pi → pi+1) into:
+  1. Compute angle θ = atan2(p_{i+1}.z - p_i.z, p_{i+1}.x - p_i.x)
+  2. Compute rotation needed: Δθ = θ - agent.current_rotation
+  3. Execute: RotateLeft/RotateRight by Δθ, then MoveAhead
+- This handles the step-size mismatch between reachable positions and discrete actions
 
 ### Layer 3: PlannerAgent (Top)
 
@@ -134,7 +155,7 @@ workflow.add_conditional_edges("verify", should_continue, {
 workflow.add_edge("adapt", "execute")
 ```
 
-LangChain 1.0 components used inside graph nodes:
+LangChain (0.3.x) components used inside graph nodes:
 - `ChatOpenAI` for LLM calls
 - `ChatPromptTemplate` for prompt management
 - Output parsers for structured LLM output
@@ -183,6 +204,91 @@ class WorkingMemory:
 ```
 
 Context compression strategy: keep last 10 action steps + current goal + scene description. Similar to Claude Code's context management.
+
+## Task Definition Schema
+
+Each task YAML file defines episodes:
+
+```yaml
+# tasks/objectnav.yaml
+task_type: objectnav
+episodes:
+  - scene: FloorPlan1
+    target_object: Chair
+    initial_position: {x: 1.0, y: 0.0, z: 2.0}
+    initial_rotation: {x: 0, y: 90}
+    success_distance: 1.0   # meters
+    max_steps: 200
+  - scene: FloorPlan2
+    target_object: Television
+    initial_position: {x: 3.0, y: 0.0, z: 1.5}
+    initial_rotation: {x: 0, y: 0}
+    success_distance: 1.0
+    max_steps: 200
+
+# tasks/vln.yaml
+task_type: vln
+episodes:
+  - scene: FloorPlan1
+    instruction: "走到红色的椅子旁边"
+    initial_position: {x: 1.0, y: 0.0, z: 2.0}
+    initial_rotation: {x: 0, y: 90}
+    success_distance: 1.0
+    max_steps: 200
+
+# tasks/interaction.yaml
+task_type: interaction
+episodes:
+  - scene: FloorPlan5
+    instruction: "走到桌子旁，拿起苹果"
+    initial_position: {x: 2.0, y: 0.0, z: 3.0}
+    initial_rotation: {x: 0, y: 180}
+    success_distance: 1.0
+    max_steps: 300
+```
+
+## Configuration
+
+```python
+# src/config/settings.py
+@dataclass
+class Settings:
+    # AI2-THOR
+    thor_grid_size: float = 0.25        # MoveAhead distance
+    thor_render_depth: bool = True
+    thor_render_instance: bool = True
+
+    # Perception
+    clip_model: str = "ViT-B/32"
+    yolo_model: str = "yolov8n.pt"
+    yolo_confidence: float = 0.3
+    clip_match_threshold: float = 0.25  # cosine similarity threshold
+
+    # Navigation
+    success_distance: float = 1.0       # meters
+    max_steps_per_episode: int = 200
+    exploration_frontier_weight: float = 2.0
+
+    # Planning
+    max_retries_per_subgoal: int = 3
+    max_global_replans: int = 2
+
+    # LLM
+    llm_model: str = "gpt-4o-mini"
+    llm_temperature: float = 0.1
+    openai_api_key: str = ""            # from env OPENAI_API_KEY
+
+    # Memory
+    working_memory_max_steps: int = 10  # action history kept before summarization
+```
+
+## Testing Strategy
+
+- **Unit tests** (no GPU required): WorkingMemory, TopologicalMap (A* on synthetic graph), TaskDecomposer (LLM mocked), Metrics calculations
+- **Integration tests** (GPU required): Controller ↔ THOR, Navigator end-to-end on a single scene, Planner → Navigator → Controller pipeline
+- **Perception tests**: Pre-rendered frames saved as test fixtures, test CLIP matching and YOLO detection deterministically
+- **Mock strategy**: ThorController can be replaced with `MockController` that replays pre-recorded observations, enabling Navigator/Planner testing without THOR
+- **Comparison experiment baseline**: Vision-only mode is a config flag `use_llm_planner=False` on the same codebase; when disabled, the Planner bypasses LLM and directly searches for the target via CLIP
 
 ## Task Types
 
@@ -258,8 +364,7 @@ multimodel/
 │   │   └── controller.py       # Controller - THOR interface
 │   ├── perception/
 │   │   ├── visual_encoder.py   # CLIP feature extraction
-│   │   ├── detector.py         # YOLO object detection
-│   │   └── scene_graph.py      # Scene understanding
+│   │   └── detector.py         # YOLO object detection
 │   ├── memory/
 │   │   ├── working_memory.py   # Short-term task state
 │   │   ├── spatial_map.py      # 2D topological map
