@@ -8,8 +8,8 @@ This module provides:
 - FeatureVector: Feature vector dataclass
 """
 
-from perception.detector import Detection, ObjectDetector, YOLO_AVAILABLE
-from perception.visual_encoder import FeatureVector, VisualEncoder, CLIP_AVAILABLE
+from src.perception.detector import Detection, ObjectDetector, YOLO_AVAILABLE
+from src.perception.visual_encoder import FeatureVector, VisualEncoder, CLIP_AVAILABLE
 
 __all__ = [
     "Detection",
