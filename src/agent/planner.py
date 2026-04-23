@@ -235,15 +235,19 @@ class PlannerAgent:
             state = self._controller.get_current_state()
 
             # Format visible objects
+            # Use a larger distance threshold for planning (5m) than for navigation
+            max_planning_distance = 5.0
             visible_objects = []
             for obj in observation.visible_objects:
-                visible_objects.append({
-                    "name": obj.get("objectType", "Unknown"),
-                    "distance": obj.get("distance", 0),
-                    "position": obj.get("position", {"x": 0, "y": 0, "z": 0})
-                })
+                distance = obj.get("distance", 0)
+                if distance <= max_planning_distance:
+                    visible_objects.append({
+                        "name": obj.get("objectType", "Unknown"),
+                        "distance": distance,
+                        "position": obj.get("position", {"x": 0, "y": 0, "z": 0})
+                    })
 
-            logger.info(f"Environment observation: {len(visible_objects)} visible objects")
+            logger.info(f"Environment observation: {len(visible_objects)} visible objects within {max_planning_distance}m")
 
             return EnvironmentObservation(
                 visible_objects=visible_objects,
