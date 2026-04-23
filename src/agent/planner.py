@@ -691,12 +691,48 @@ class PlannerAgent:
             VerificationResult with success status.
         """
         if action == "navigate":
-            # For navigation, we verify by checking position
-            # In a full implementation, this would check distance to target
-            current_state = self._controller.get_current_state()
+            # Check if the target or a related object is visible
+            observation = self._controller.get_current_observation()
+            target_lower = target.lower()
+
+            # Room-to-object mappings for room-level navigation
+            room_objects = {
+                "kitchen": ["fridge", "microwave", "toaster", "sink", "stove",
+                             "countertop", "kitchencounter", "oven"],
+                "厨房": ["fridge", "microwave", "toaster", "sink", "stove",
+                         "countertop", "oven"],
+                "bedroom": ["bed", "desk", "dresser", "nightstand", "wardrobe"],
+                "卧室": ["bed", "desk", "dresser", "nightstand"],
+                "bathroom": ["toiletpaper", "sink", "bathtub", "toilet",
+                             "towelholder"],
+                "浴室": ["toiletpaper", "sink", "bathtub", "toilet"],
+                "living room": ["sofa", "chair", "tv", "coffeetable", "fireplace"],
+                "客厅": ["sofa", "chair", "tv", "coffeetable"],
+            }
+
+            for obj in observation.visible_objects:
+                obj_type = obj.get("objectType", "").lower()
+                distance = obj.get("distance", float('inf'))
+
+                # Direct name match
+                if target_lower in obj_type or obj_type in target_lower:
+                    return VerificationResult(
+                        success=True,
+                        message=f"Found target '{target}' ({obj_type}) at {distance:.2f}m"
+                    )
+
+                # Room-level match: check if we can see objects typical for that room
+                if target_lower in room_objects:
+                    for room_obj in room_objects[target_lower]:
+                        if room_obj in obj_type:
+                            return VerificationResult(
+                                success=True,
+                                message=f"Reached {target} area, can see {obj_type} at {distance:.2f}m"
+                            )
+
             return VerificationResult(
-                success=True,
-                message=f"Navigation verified at position {current_state.position}"
+                success=False,
+                message=f"Target '{target}' not visible after navigation"
             )
 
         elif action == "pickup":

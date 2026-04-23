@@ -221,6 +221,11 @@ class NavigatorAgent:
         steps_taken = 0
         target_object: Optional[ObjectInfo] = None
 
+        # Stuck detection: track distance to detect when agent isn't making progress
+        stuck_count = 0
+        last_distance = float('inf')
+        path_waypoints: Optional[List[Position]] = None
+
         for step in range(max_steps):
             steps_taken = step + 1
 
@@ -242,18 +247,45 @@ class NavigatorAgent:
                     )
                     return NavigationResult(
                         success=True,
-                        final_position=dict(initial_state.position),
+                        final_position=dict(self._controller.get_current_state().position),
                         steps_taken=steps_taken,
                         distance_to_target=target_object.distance,
                         error=None
                     )
 
-                # Try to move towards target
+                # Track if we're making progress toward the target
+                if abs(target_object.distance - last_distance) < 0.05:
+                    stuck_count += 1
+                else:
+                    stuck_count = 0
+                    path_waypoints = None  # Reset path when making progress
+                last_distance = target_object.distance
+
                 target_pos = target_object.position
+
+                # When stuck, use A* pathfinding to navigate around obstacles
+                if stuck_count >= 3 and self._spatial_map is not None:
+                    if path_waypoints is None:
+                        path_waypoints = self._plan_path_to_target(target_pos)
+
+                    if path_waypoints:
+                        logger.info(
+                            f"Following path around obstacle "
+                            f"({len(path_waypoints)} waypoints remaining, "
+                            f"stuck_count: {stuck_count})"
+                        )
+                        if self._follow_next_waypoint(path_waypoints):
+                            state = self._controller.get_current_state()
+                            self._current_position = (state.position["x"], state.position["z"])
+                            continue
+                        else:
+                            # Path following failed, recalculate next iteration
+                            path_waypoints = None
+
+                # Try direct move towards target
                 move_result = self._move_towards(target_pos)
 
                 if move_result.success:
-                    # Update current position
                     state = self._controller.get_current_state()
                     self._current_position = (state.position["x"], state.position["z"])
                     continue
@@ -412,6 +444,83 @@ class NavigatorAgent:
 
         # Move forward
         return self._controller.step("MoveAhead")
+
+    def _plan_path_to_target(self, target_pos: Dict[str, float]) -> Optional[List[Position]]:
+        """
+        Plan a path to the target using A* on the spatial map.
+
+        Finds the nearest reachable node to the current position and target,
+        then uses A* pathfinding to plan a route around obstacles.
+
+        Args:
+            target_pos: Target position with x, z keys.
+
+        Returns:
+            List of Position waypoints, or None if no path found.
+        """
+        if self._spatial_map is None:
+            return None
+
+        state = self._controller.get_current_state()
+        current_2d: Position = (state.position["x"], state.position["z"])
+        target_2d: Position = (target_pos["x"], target_pos["z"])
+
+        start_node = self._spatial_map.get_nearest_node(current_2d)
+        goal_node = self._spatial_map.get_nearest_node(target_2d)
+
+        if start_node is None or goal_node is None or start_node == goal_node:
+            logger.info("No pathfinding needed: already at closest reachable position")
+            return None
+
+        path = self._spatial_map.find_path(start_node, goal_node)
+
+        if path:
+            logger.info(
+                f"Planned A* path: {len(path)} waypoints "
+                f"from {current_2d} toward {target_2d}"
+            )
+        else:
+            logger.info("A* pathfinding: no path found to target")
+
+        return path
+
+    def _follow_next_waypoint(self, waypoints: List[Position]) -> bool:
+        """
+        Follow the next waypoint in the path.
+
+        Removes waypoints that have been reached and moves towards
+        the next one using _move_towards().
+
+        Args:
+            waypoints: Mutable list of remaining waypoints.
+
+        Returns:
+            True if a movement action was taken successfully.
+        """
+        if not waypoints:
+            return False
+
+        state = self._controller.get_current_state()
+        current_2d: Position = (state.position["x"], state.position["z"])
+
+        # Skip waypoints we've already reached
+        while waypoints and euclidean_distance(current_2d, waypoints[0]) < 0.3:
+            waypoints.pop(0)
+
+        if not waypoints:
+            return False
+
+        next_wp = waypoints[0]
+        move_result = self._move_towards({"x": next_wp[0], "z": next_wp[1]})
+
+        if move_result.success:
+            # Check if we reached this waypoint after the move
+            new_state = self._controller.get_current_state()
+            new_2d: Position = (new_state.position["x"], new_state.position["z"])
+            if euclidean_distance(new_2d, next_wp) < 0.3:
+                waypoints.pop(0)
+
+        return move_result.success
 
     def _explore_step(self) -> StepResult:
         """
