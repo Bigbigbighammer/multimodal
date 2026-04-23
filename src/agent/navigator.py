@@ -228,6 +228,11 @@ class NavigatorAgent:
             target_object = self.find_object(target_description)
 
             if target_object is not None:
+                logger.info(
+                    f"Found candidate: {target_object.object_type} "
+                    f"(distance: {target_object.distance:.2f}m, similarity: {target_object.clip_similarity:.2f})"
+                )
+
                 # Check if we're close enough
                 success_distance = self._settings.navigation.success_distance
 
@@ -332,11 +337,25 @@ class NavigatorAgent:
         best_match: Optional[ObjectInfo] = None
         best_similarity = -1.0
 
+        # Also encode description variants for better matching
+        description_lower = description.lower()
+
         for obj in objects:
-            # Calculate similarity (would need image features in real implementation)
-            # For now, use object type matching with CLIP
+            # First check for direct name match (higher priority)
+            obj_type_lower = obj.object_type.lower()
+            direct_match = False
+
+            # Check if description contains object type or vice versa
+            if obj_type_lower in description_lower or description_lower in obj_type_lower:
+                direct_match = True
+
+            # Calculate CLIP similarity
             type_feature = self._visual_encoder.encode_text(obj.object_type)
             similarity = self._visual_encoder.compute_similarity(text_feature, type_feature)
+
+            # Boost similarity for direct name matches
+            if direct_match:
+                similarity = max(similarity, 0.85)  # Boost to at least 0.85
 
             if similarity > best_similarity:
                 best_similarity = similarity
@@ -344,7 +363,11 @@ class NavigatorAgent:
                 obj.clip_similarity = similarity
 
         threshold = self._settings.perception.clip_match_threshold
-        if best_similarity >= threshold:
+
+        # Use higher threshold (0.5) for non-direct matches
+        effective_threshold = 0.5 if best_similarity < 0.85 else threshold
+
+        if best_similarity >= effective_threshold:
             return best_match
 
         return None
