@@ -444,3 +444,56 @@ class NavigatorAgent:
             Current position as (x, z) tuple.
         """
         return self._current_position
+
+    def navigate_to_target(
+        self,
+        target: str,
+        max_steps: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Navigate to a target object (wrapper for interactive mode).
+
+        Args:
+            target: Target object description.
+            max_steps: Maximum navigation steps.
+
+        Returns:
+            Dict with success, distance, steps, and error.
+        """
+        result = self.navigate_to(target, max_steps=max_steps)
+        return {
+            "success": result.success,
+            "distance": result.distance_to_target,
+            "steps": result.steps_taken,
+            "error": result.error
+        }
+
+    def explore(self, max_steps: int = 20) -> Dict[str, Any]:
+        """
+        Explore the environment.
+
+        Args:
+            max_steps: Maximum exploration steps.
+
+        Returns:
+            Dict with steps taken and positions visited.
+        """
+        positions_visited = []
+        steps_taken = 0
+
+        for _ in range(max_steps):
+            result = self._explore_step()
+            steps_taken += 1
+
+            state = self._controller.get_current_state()
+            pos = (state.position["x"], state.position["z"])
+            positions_visited.append(pos)
+
+            if not result.success:
+                # Try rotating
+                self._controller.step("RotateRight")
+
+        return {
+            "steps": steps_taken,
+            "positions": positions_visited
+        }
