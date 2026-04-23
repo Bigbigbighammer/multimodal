@@ -433,6 +433,10 @@ class PlannerAgent:
         """
         logger.info(f"Starting task execution: '{instruction}'")
 
+        # Reset state for new task
+        self._state = None
+        self._navigator = None  # Reset navigator to get fresh observation
+
         # Initialize state
         self._state = _init_state(instruction)
 
