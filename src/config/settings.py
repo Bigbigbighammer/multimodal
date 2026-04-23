@@ -85,8 +85,8 @@ class LLMSettings:
     temperature: float = 0.1
     max_tokens: int = 1024
 
-    # API settings
-    api_key: str = "sk-IGABtcYF9scaLsaaz4kabSUyCF37k6947z3C9pflQZ10WHPS"  # Loaded from OPENAI_API_KEY env var
+    # API settings - loaded from environment variable OPENAI_API_KEY
+    api_key: str = ""  # Set via OPENAI_API_KEY env var or config file
     api_base: Optional[str] = None  # Custom API endpoint if needed
     request_timeout: float = 30.0
 

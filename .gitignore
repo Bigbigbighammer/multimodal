@@ -50,6 +50,11 @@ logs/
 # Local settings
 .claude/settings.local.json
 
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
 # OS
 .DS_Store
 Thumbs.db
