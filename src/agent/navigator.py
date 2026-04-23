@@ -209,6 +209,15 @@ class NavigatorAgent:
         initial_pos = initial_state.position
         self._current_position = (initial_pos["x"], initial_pos["z"])
 
+        # Check if this is a direction-based command (not object search)
+        direction_keywords = ["前", "后", "左", "右", "forward", "back", "left", "right",
+                            "向前", "向后", "向左", "向右", "往前", "往后"]
+        is_direction_command = any(kw in target_description.lower() for kw in direction_keywords)
+
+        if is_direction_command:
+            # Execute direction-based movement
+            return self._execute_direction_movement(target_description, max_steps)
+
         steps_taken = 0
         target_object: Optional[ObjectInfo] = None
 
@@ -448,6 +457,53 @@ class NavigatorAgent:
             Current position as (x, z) tuple.
         """
         return self._current_position
+
+    def _execute_direction_movement(self, direction: str, max_steps: int = 5) -> NavigationResult:
+        """
+        Execute direction-based movement (forward, back, left, right).
+
+        Args:
+            direction: Direction description.
+            max_steps: Maximum steps to move.
+
+        Returns:
+            NavigationResult with movement result.
+        """
+        initial_state = self._controller.get_current_state()
+        steps_taken = 0
+
+        # Determine action based on direction
+        direction_lower = direction.lower()
+
+        if any(kw in direction_lower for kw in ["前", "forward", "向前", "往前"]):
+            action = "MoveAhead"
+        elif any(kw in direction_lower for kw in ["后", "back", "向后", "往后"]):
+            action = "MoveBack"
+        elif any(kw in direction_lower for kw in ["左", "left", "向左"]):
+            action = "MoveLeft"
+        elif any(kw in direction_lower for kw in ["右", "right", "向右"]):
+            action = "MoveRight"
+        else:
+            # Default to forward
+            action = "MoveAhead"
+
+        # Execute movement
+        for _ in range(min(max_steps, 3)):  # Limit to 3 steps for direction commands
+            result = self._controller.step(action)
+            steps_taken += 1
+            if not result.success:
+                break
+
+        final_state = self._controller.get_current_state()
+        logger.info(f"Direction movement: {action}, steps: {steps_taken}")
+
+        return NavigationResult(
+            success=True,
+            final_position=dict(final_state.position),
+            steps_taken=steps_taken,
+            distance_to_target=0.0,
+            error=None
+        )
 
     def navigate_to_target(
         self,
