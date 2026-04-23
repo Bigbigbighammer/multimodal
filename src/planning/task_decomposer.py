@@ -207,7 +207,7 @@ Return your response as JSON with this structure:
         self,
         use_llm: bool = True,
         api_key: Optional[str] = None,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5.2",
         temperature: float = 0.1,
         settings: Optional[Settings] = None
     ):
@@ -239,12 +239,23 @@ Return your response as JSON with this structure:
         """Initialize the LangChain LLM client."""
         try:
             from langchain_openai import ChatOpenAI
-            self._llm = ChatOpenAI(
-                model=self._model,
-                temperature=self._temperature,
-                api_key=self._api_key,
-                max_tokens=1024
-            )
+            import os
+
+            # Get API base from settings or environment
+            api_base = self._settings.llm.api_base if self._settings else None
+            api_base = api_base or os.environ.get("OPENAI_API_BASE")
+
+            llm_kwargs = {
+                "model": self._model,
+                "temperature": self._temperature,
+                "api_key": self._api_key,
+                "max_tokens": 1024
+            }
+
+            if api_base:
+                llm_kwargs["base_url"] = api_base
+
+            self._llm = ChatOpenAI(**llm_kwargs)
             logger.info(f"Initialized LLM for task decomposition: {self._model}")
         except ImportError:
             logger.warning(
