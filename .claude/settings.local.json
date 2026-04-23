@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(pytest tests/test_spatial_map.py -v)",
-      "Bash(python -m pytest tests/test_working_memory.py -v)",
-      "Bash(python -m pytest tests/test_metrics.py -v)"
-    ]
-  }
-}
