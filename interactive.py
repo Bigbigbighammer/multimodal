@@ -172,6 +172,7 @@ class InteractiveSession:
         # Components
         self._controller: Optional[ThorController] = None
         self._navigator: Optional[NavigatorAgent] = None
+        self._planner: Optional[PlannerAgent] = None
         self._visual_encoder: Optional[VisualEncoder] = None
         self._detector: Optional[ObjectDetector] = None
         self._parser = CommandParser()
@@ -223,6 +224,15 @@ class InteractiveSession:
             settings=self._settings
         )
 
+        # Initialize LLM planner if enabled
+        if self._use_llm_planner:
+            print("Initializing LLM planner...")
+            self._planner = PlannerAgent(
+                controller=self._controller,
+                use_llm_planner=True,
+                settings=self._settings
+            )
+
         print("Ready!\n")
 
         # Setup prompt
@@ -259,7 +269,7 @@ class InteractiveSession:
         """Run the interactive REPL loop."""
         self.start()
 
-        print("Type 'help' for available commands.\n")
+        print("Enter natural language commands. Type 'help' for examples, 'quit' to exit.\n")
 
         while self._running:
             try:
@@ -269,9 +279,25 @@ class InteractiveSession:
                 if not user_input:
                     continue
 
-                # Parse and execute
-                command = self._parser.parse(user_input)
-                self._execute_command(command, user_input)
+                # Handle special control commands
+                lower_input = user_input.lower()
+                if lower_input in ("quit", "exit"):
+                    self._quit()
+                    break
+                elif lower_input == "help":
+                    self._print_help()
+                    continue
+                elif lower_input == "status":
+                    self._print_status()
+                    continue
+                elif lower_input == "reset":
+                    print("[Resetting environment...]")
+                    self._controller.reset(scene_name=self._scene)
+                    print("Environment reset.")
+                    continue
+
+                # All other input goes to LLM planner
+                self._execute_natural_language(user_input)
 
             except KeyboardInterrupt:
                 print("\nUse 'quit' to exit.")
@@ -281,218 +307,70 @@ class InteractiveSession:
                 self._quit()
                 break
 
-    def _execute_command(self, command: ParsedCommand, raw_input: str) -> None:
+    def _execute_natural_language(self, instruction: str) -> None:
         """
-        Execute a parsed command.
+        Execute a natural language instruction using LLM planner.
 
         Args:
-            command: Parsed command.
-            raw_input: Original input string.
+            instruction: Natural language instruction from user.
         """
-        self._command_history.append(raw_input)
+        self._command_history.append(instruction)
 
-        if command.type == CommandType.NAVIGATE:
-            self._handle_navigation(command)
+        print(f"\n[Executing: {instruction}]")
 
-        elif command.type == CommandType.ACTION:
-            self._handle_action(command)
+        if self._use_llm_planner and self._planner:
+            # Use LLM planner for intelligent task execution
+            result = self._planner.execute_task(instruction)
 
-        elif command.type == CommandType.VISION:
-            self._handle_vision(command)
-
-        elif command.type == CommandType.CONTROL:
-            self._handle_control(command)
-
+            if result.get("success"):
+                steps = len(result.get("executed_actions", []))
+                decomposition = result.get("decomposition")
+                if decomposition:
+                    subgoals = decomposition.get("subgoals", [])
+                    print(f"✓ Task completed!")
+                    print(f"  Subgoals: {len(subgoals)}, Steps: {steps}")
+                else:
+                    print(f"✓ Task completed in {steps} steps")
+            else:
+                error = result.get("error", "unknown error")
+                print(f"✗ Failed: {error}")
         else:
-            print(f"Unknown command: '{raw_input}'. Type 'help' for available commands.")
-
-    def _handle_navigation(self, command: ParsedCommand) -> None:
-        """Handle navigation commands."""
-        action = command.action
-        target = command.target
-
-        if action == "explore":
-            print("[Exploring environment...]")
-            result = self._navigator.explore(max_steps=20)
-            print(f"Explored {result.get('steps', 0)} steps")
-
-        elif action in ("go", "find"):
-            if not target:
-                print("Please specify a target. Usage: go <target>")
-                return
-
-            print(f"[Navigating to: {target}]")
-
-            # Use navigator to find target
-            result = self._navigator.navigate_to_target(target)
+            # Fallback: try to use navigator for simple navigation
+            print("[No LLM planner available, using basic navigation...]")
+            result = self._navigator.navigate_to_target(instruction)
 
             if result.get("success"):
                 distance = result.get("distance", 0)
                 steps = result.get("steps", 0)
-                print(f"✓ Reached {target} (distance: {distance:.2f}m, steps: {steps})")
+                print(f"✓ Reached target (distance: {distance:.2f}m, steps: {steps})")
             else:
                 error = result.get("error", "unknown error")
-                print(f"✗ Failed to reach {target}: {error}")
+                print(f"✗ Failed: {error}")
 
-    def _handle_action(self, command: ParsedCommand) -> None:
-        """Handle action commands."""
-        action = command.action
-        target = command.target
-
-        if not target:
-            print(f"Please specify a target. Usage: {action} <object>")
-            return
-
-        print(f"[Executing: {action} {target}]")
-
-        # Find object first
-        observation = self._controller.get_current_observation()
-        objects = observation.visible_objects
-
-        # Match target to visible object
-        matched_object = None
-        for obj in objects:
-            if target.lower() in obj["objectType"].lower():
-                matched_object = obj
-                break
-
-        if not matched_object:
-            print(f"✗ Cannot find '{target}' in view. Try 'scan' to see available objects.")
-            return
-
-        object_id = matched_object["objectId"]
-
-        # Execute action
-        if action == "pickup":
-            result = self._controller.step("PickupObject", objectId=object_id)
-        elif action == "put":
-            result = self._controller.step("PutObject")
-        elif action == "open":
-            result = self._controller.step("OpenObject", objectId=object_id)
-        elif action == "close":
-            result = self._controller.step("CloseObject", objectId=object_id)
-        elif action == "toggle":
-            result = self._controller.step("ToggleObjectOn", objectId=object_id)
-        else:
-            result = self._controller.step(action, objectId=object_id)
-
-        if result.success:
-            print(f"✓ {action.capitalize()} {target} successful")
-        else:
-            print(f"✗ {action.capitalize()} failed: {result.error}")
-
-    def _handle_vision(self, command: ParsedCommand) -> None:
-        """Handle vision commands."""
-        action = command.action
-
-        if action == "look":
-            observation = self._controller.get_current_observation()
-            print(f"\nPosition: {observation.agent_state.position}")
-            print(f"Rotation: {observation.agent_state.rotation}")
-            print(f"Visible objects: {len(observation.visible_objects)}")
-            for obj in observation.visible_objects[:5]:
-                dist = obj.get("distance", 0)
-                print(f"  - {obj['objectType']} ({dist:.2f}m)")
-            if len(observation.visible_objects) > 5:
-                print(f"  ... and {len(observation.visible_objects) - 5} more")
-            print()
-
-        elif action == "scan":
-            observation = self._controller.get_current_observation()
-            print(f"\n{'='*40}")
-            print("VISIBLE OBJECTS:")
-            print(f"{'='*40}")
-
-            if not observation.visible_objects:
-                print("No objects visible.")
-            else:
-                # Group by type
-                by_type: Dict[str, List] = {}
-                for obj in observation.visible_objects:
-                    obj_type = obj["objectType"]
-                    if obj_type not in by_type:
-                        by_type[obj_type] = []
-                    by_type[obj_type].append(obj)
-
-                for obj_type, objects in sorted(by_type.items()):
-                    print(f"\n{obj_type}:")
-                    for obj in objects:
-                        dist = obj.get("distance", 0)
-                        pos = obj.get("position", {})
-                        print(f"  - {obj['objectId']} ({dist:.2f}m)")
-
-            print(f"\n{'='*40}\n")
-
-        elif action == "turn":
-            direction = command.target
-            if direction == "left":
-                result = self._controller.step("RotateLeft")
-                print("↺ Turned left")
-            elif direction == "right":
-                result = self._controller.step("RotateRight")
-                print("↻ Turned right")
-
-        elif action == "turn_deg":
-            degrees = int(command.target)
-            result = self._controller.step("Rotate", rotation={"y": degrees})
-            print(f"↻ Turned {degrees}°")
-
-        elif action == "face":
-            target = command.target
-            print(f"[Facing: {target}]")
-            # TODO: Implement face toward object
-
-    def _handle_control(self, command: ParsedCommand) -> None:
-        """Handle control commands."""
-        action = command.action
-
-        if action == "help":
-            self._print_help()
-
-        elif action == "status":
-            self._print_status()
-
-        elif action == "stop":
-            print("[Stopping current task...]")
-            self._current_task = None
-
-        elif action == "reset":
-            print("[Resetting environment...]")
-            self._controller.reset(scene_name=self._scene)
-            print("Environment reset.")
-
-        elif action == "quit":
-            self._quit()
+        print()
 
     def _print_help(self) -> None:
         """Print help message."""
         help_text = """
 ╔══════════════════════════════════════════════════════════╗
-║                    AVAILABLE COMMANDS                      ║
+║              NATURAL LANGUAGE INTERACTION                  ║
 ╠══════════════════════════════════════════════════════════╣
-║ NAVIGATION                                                ║
-║   go <target>       - Navigate to target                  ║
-║   find <object>     - Find and approach object            ║
-║   explore           - Explore the environment             ║
+║ Just type what you want to do in natural language!         ║
+║                                                             ║
+║ Examples:                                                   ║
+║   "find the chair"          - Navigate to a chair          ║
+║   "go to the kitchen"       - Navigate to kitchen          ║
+║   "pick up the apple"       - Pick up an apple             ║
+║   "open the fridge"         - Open the refrigerator        ║
+║   "look around"             - Scan the environment         ║
+║   "what can you see"        - List visible objects         ║
+║                                                             ║
 ╠══════════════════════════════════════════════════════════╣
-║ ACTIONS                                                   ║
-║   pick <object>     - Pick up an object                   ║
-║   put <object>      - Put down held object                ║
-║   open <object>     - Open an object                      ║
-║   close <object>    - Close an object                     ║
-╠══════════════════════════════════════════════════════════╣
-║ VISION                                                    ║
-║   look              - Show current view info              ║
-║   scan              - List all visible objects            ║
-║   turn left/right   - Rotate 90 degrees                   ║
-║   turn <degrees>    - Rotate by specific angle            ║
-╠══════════════════════════════════════════════════════════╣
-║ CONTROL                                                   ║
-║   status            - Show agent status                   ║
-║   stop              - Stop current task                   ║
-║   reset             - Reset environment                   ║
-║   help              - Show this help                      ║
-║   quit              - Exit interactive mode               ║
+║ CONTROL COMMANDS                                            ║
+║   status   - Show agent status                              ║
+║   reset    - Reset environment                              ║
+║   help     - Show this help                                 ║
+║   quit     - Exit interactive mode                          ║
 ╚══════════════════════════════════════════════════════════╝
 """
         print(help_text)
