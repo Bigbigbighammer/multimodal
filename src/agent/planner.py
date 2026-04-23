@@ -13,9 +13,12 @@ from typing import Dict, List, Optional, Any, TypedDict, Annotated
 import logging
 
 from src.agent.controller import ThorController, StepResult
+from src.agent.navigator import NavigatorAgent
 from src.planning.recovery import RecoveryAction, RecoveryResult, RecoveryStrategy
 from src.planning.verifier import Verifier, VerificationResult
 from src.planning.task_decomposer import TaskDecomposer, TaskDecomposition, Subgoal
+from src.perception.visual_encoder import VisualEncoder
+from src.perception.detector import ObjectDetector
 from src.config.settings import Settings, default_settings
 
 logger = logging.getLogger(__name__)
@@ -122,6 +125,9 @@ class PlannerAgent:
             retry_rotation_degrees=self._settings.planning.retry_rotation_degrees,
             local_search_radius=self._settings.planning.local_search_radius
         )
+
+        # Navigator for actual navigation (initialized lazily)
+        self._navigator: Optional[NavigatorAgent] = None
 
         # Build the workflow graph
         self._graph = self._build_workflow()
@@ -527,55 +533,95 @@ class PlannerAgent:
         """
         try:
             if action == "navigate":
-                # For navigation, we use a simple exploration approach
-                # In a full implementation, this would use the NavigatorAgent
-                result = self._controller.step("MoveAhead")
-                return {
-                    "success": result.success,
-                    "error": result.error
-                }
+                # Use NavigatorAgent for actual navigation
+                if self._navigator is None:
+                    # Initialize navigator lazily
+                    visual_encoder = VisualEncoder(
+                        model_name=self._settings.perception.clip_model,
+                        pretrained=self._settings.perception.clip_pretrained
+                    )
+                    detector = ObjectDetector(
+                        model_name=self._settings.perception.yolo_model
+                    )
+                    self._navigator = NavigatorAgent(
+                        controller=self._controller,
+                        visual_encoder=visual_encoder,
+                        detector=detector,
+                        settings=self._settings
+                    )
+
+                # Navigate to target
+                logger.info(f"Navigating to: {target}")
+                nav_result = self._navigator.navigate_to_target(target)
+
+                if nav_result.get("success"):
+                    logger.info(f"Navigation successful: reached {target}")
+                    return {"success": True, "error": None}
+                else:
+                    error = nav_result.get("error", "navigation failed")
+                    logger.warning(f"Navigation failed: {error}")
+                    return {"success": False, "error": error}
 
             elif action == "pickup":
-                # Pickup requires an object ID
-                # In mock mode, we use a mock object ID
-                result = self._controller.step("PickupObject", objectId=f"{target}|0|0|0")
-                return {
-                    "success": result.success,
-                    "error": result.error
-                }
+                # Find object and pick it up
+                observation = self._controller.get_current_observation()
+                matched_object = self._find_object_in_view(target, observation.visible_objects)
+
+                if matched_object is None:
+                    return {"success": False, "error": f"Cannot find '{target}' in view"}
+
+                result = self._controller.step("PickupObject", objectId=matched_object["objectId"])
+                return {"success": result.success, "error": result.error}
 
             elif action == "put":
                 result = self._controller.step("PutObject")
-                return {
-                    "success": result.success,
-                    "error": result.error
-                }
+                return {"success": result.success, "error": result.error}
 
             elif action == "open":
-                result = self._controller.step("OpenObject", objectId=f"{target}|0|0|0")
-                return {
-                    "success": result.success,
-                    "error": result.error
-                }
+                observation = self._controller.get_current_observation()
+                matched_object = self._find_object_in_view(target, observation.visible_objects)
+
+                if matched_object is None:
+                    return {"success": False, "error": f"Cannot find '{target}' in view"}
+
+                result = self._controller.step("OpenObject", objectId=matched_object["objectId"])
+                return {"success": result.success, "error": result.error}
 
             elif action == "close":
-                result = self._controller.step("CloseObject", objectId=f"{target}|0|0|0")
-                return {
-                    "success": result.success,
-                    "error": result.error
-                }
+                observation = self._controller.get_current_observation()
+                matched_object = self._find_object_in_view(target, observation.visible_objects)
+
+                if matched_object is None:
+                    return {"success": False, "error": f"Cannot find '{target}' in view"}
+
+                result = self._controller.step("CloseObject", objectId=matched_object["objectId"])
+                return {"success": result.success, "error": result.error}
 
             else:
-                return {
-                    "success": False,
-                    "error": f"Unknown action: {action}"
-                }
+                return {"success": False, "error": f"Unknown action: {action}"}
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            logger.error(f"Error executing subgoal: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _find_object_in_view(self, target: str, visible_objects: List[Dict]) -> Optional[Dict]:
+        """
+        Find a matching object in visible objects.
+
+        Args:
+            target: Target object name.
+            visible_objects: List of visible objects from observation.
+
+        Returns:
+            Matching object dict or None.
+        """
+        target_lower = target.lower()
+        for obj in visible_objects:
+            obj_type = obj.get("objectType", "").lower()
+            # Match if target is in object type or object type is in target
+            if target_lower in obj_type or obj_type in target_lower:
+                return obj
+        return None
 
     def _verify_subgoal(self, action: str, target: str) -> VerificationResult:
         """

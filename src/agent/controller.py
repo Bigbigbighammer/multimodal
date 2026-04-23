@@ -59,7 +59,7 @@ class ThorObservation:
     depth: Optional[Any]  # bytes in mock mode, numpy array with THOR
     instance_mask: Optional[Any]  # bytes in mock mode, numpy array with THOR
     agent_state: AgentState
-    visible_objects: List[str] = field(default_factory=list)
+    visible_objects: List[Dict] = field(default_factory=list)
 
 
 @dataclass
@@ -484,6 +484,15 @@ class ThorController:
             held_object=self._mock_held_object
         )
 
+    def get_current_observation(self) -> ThorObservation:
+        """
+        Get the current observation from the environment.
+
+        Returns:
+            ThorObservation with rgb, depth, agent_state, and visible_objects.
+        """
+        return self._get_observation()
+
     def _get_observation(self) -> ThorObservation:
         """Get current observation (dispatches to THOR or mock)."""
         if self._use_thor and self._controller is not None:
@@ -518,12 +527,18 @@ class ThorController:
             held_object=held_object
         )
 
-        # Get visible objects
+        # Get visible objects with full info
         visible_objects = []
         objects = metadata.get("objects", [])
         for obj in objects:
             if obj.get("visible", False):
-                visible_objects.append(obj.get("objectType", "Unknown"))
+                visible_objects.append({
+                    "objectId": obj.get("objectId", ""),
+                    "objectType": obj.get("objectType", "Unknown"),
+                    "position": obj.get("position", {"x": 0, "y": 0, "z": 0}),
+                    "distance": obj.get("distance", 0),
+                    "visible": True
+                })
 
         # Get image data
         rgb = None
@@ -559,7 +574,10 @@ class ThorController:
             depth=b"mock_depth_data" if self._settings.thor.render_depth else None,
             instance_mask=b"mock_mask_data" if self._settings.thor.render_instance_segmentation else None,
             agent_state=agent_state,
-            visible_objects=["MockObject1", "MockObject2"]
+            visible_objects=[
+                {"objectId": "MockObject1|0|0|0", "objectType": "MockObject1", "position": {"x": 1, "y": 0, "z": 1}, "distance": 1.0, "visible": True},
+                {"objectId": "MockObject2|0|0|0", "objectType": "MockObject2", "position": {"x": 2, "y": 0, "z": 2}, "distance": 2.0, "visible": True}
+            ]
         )
 
     def close(self) -> None:
