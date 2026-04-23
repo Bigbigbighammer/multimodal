@@ -212,7 +212,7 @@ class InteractiveSession:
             pretrained=self._settings.perception.clip_pretrained
         )
         self._detector = ObjectDetector(
-            model_path=self._settings.perception.yolo_model
+            model_name=self._settings.perception.yolo_model
         )
 
         # Initialize navigator
