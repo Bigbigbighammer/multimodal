@@ -275,24 +275,28 @@ class NavigatorAgent:
         """
         objects: List[ObjectInfo] = []
 
-        # Get current observation
-        state = self._controller.get_current_state()
+        # Get current observation from controller
+        try:
+            observation = self._controller.get_current_observation()
+            visible_objs = observation.visible_objects
 
-        # Step to get fresh observation
-        # In mock mode, we need to query for visible objects
-        # In real THOR, objects come from event metadata
+            for obj in visible_objs:
+                obj_info = ObjectInfo(
+                    object_id=obj.get("objectId", ""),
+                    object_type=obj.get("objectType", "Unknown"),
+                    position=obj.get("position", {"x": 0, "y": 0, "z": 0}),
+                    distance=obj.get("distance", 0.0),
+                    detection=None,
+                    clip_similarity=0.0
+                )
+                objects.append(obj_info)
 
-        # Since controller doesn't expose objects directly,
-        # we use the visible_objects from the last observation
-        # For now, return mock objects for testing
+            if objects:
+                logger.debug(f"Found {len(objects)} visible objects")
 
-        # In a full implementation, this would:
-        # 1. Get the last event from controller
-        # 2. Extract visible objects from metadata
-        # 3. Create ObjectInfo for each
+        except Exception as e:
+            logger.warning(f"Failed to get visible objects: {e}")
 
-        # Mock implementation for testing
-        # Real implementation would query THOR metadata
         return objects
 
     def _find_best_match_thor(
