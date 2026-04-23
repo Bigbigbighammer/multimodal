@@ -64,8 +64,8 @@ class NavigationSettings:
 @dataclass
 class PlanningSettings:
     """High-level planning and task decomposition settings."""
-    max_retries_per_subgoal: int = 3
-    max_global_replans: int = 2
+    max_retries_per_subgoal: int = 2
+    max_global_replans: int = 1
 
     # Recovery behavior
     retry_rotation_degrees: float = 90.0  # Rotate this much before retry
@@ -75,7 +75,7 @@ class PlanningSettings:
     verification_wait_steps: int = 2  # Steps to wait before verifying
 
     # Subgoal settings
-    max_subgoals: int = 10  # Maximum subgoals per task
+    max_subgoals: int = 5  # Maximum subgoals per task (keep simple)
 
 
 @dataclass

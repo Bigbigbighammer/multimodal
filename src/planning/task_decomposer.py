@@ -168,23 +168,24 @@ class TaskDecomposer:
 
     # Prompt template for LLM decomposition
     DECOMPOSITION_PROMPT = """You are an embodied AI agent planning system.
-Given a task instruction, decompose it into a sequence of executable subgoals.
+Given a task instruction, decompose it into a MINIMAL sequence of executable subgoals.
+
+IMPORTANT RULES:
+1. Keep it SIMPLE - use the FEWEST subgoals possible
+2. For "find X" tasks: just ONE navigate subgoal to X
+3. For "pick up X" tasks: navigate to X, then pickup X (2 subgoals max)
+4. For "open X" tasks: navigate to X, then open X (2 subgoals max)
+5. Do NOT add unnecessary exploration steps
+6. Do NOT decompose into multiple locations unless explicitly requested
 
 Available actions:
-- navigate: Move to a target location or object
-- pickup: Pick up an object
+- navigate: Move to find/reach a target object or location
+- pickup: Pick up an object (must be close to it first)
 - put: Put down an object at a location
-- open: Open an object (door, drawer, etc.)
+- open: Open an object (door, fridge, drawer, etc.)
 - close: Close an object
 
 Task: {task}
-
-Decompose this task into subgoals. Each subgoal should have:
-1. A unique id (subgoal_1, subgoal_2, etc.)
-2. An action (navigate, pickup, put, open, close)
-3. A target (object name or location)
-4. A description of what the subgoal accomplishes
-5. Dependencies (list of subgoal ids that must complete first)
 
 Return your response as JSON with this structure:
 {{
@@ -193,13 +194,13 @@ Return your response as JSON with this structure:
         {{
             "id": "subgoal_1",
             "action": "navigate",
-            "target": "target description",
-            "description": "human readable description",
+            "target": "simple object name",
+            "description": "brief description",
             "dependencies": []
         }}
     ],
-    "reasoning": "explanation of decomposition strategy",
-    "estimated_steps": 10
+    "reasoning": "why this minimal decomposition",
+    "estimated_steps": 5
 }}
 """
 
