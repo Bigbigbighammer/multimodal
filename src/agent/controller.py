@@ -528,15 +528,23 @@ class ThorController:
         )
 
         # Get visible objects with full info
+        # Note: In THOR, objects within visibility_distance are returned
+        # The 'visible' field may not always be present, so we check distance
         visible_objects = []
         objects = metadata.get("objects", [])
+        visibility_distance = self._settings.thor.visibility_distance
+
         for obj in objects:
-            if obj.get("visible", False):
+            # Check if object is visible (within visibility distance)
+            distance = obj.get("distance", float('inf'))
+            is_visible = obj.get("visible", True)  # Default to True if not present
+
+            if is_visible or distance <= visibility_distance:
                 visible_objects.append({
                     "objectId": obj.get("objectId", ""),
                     "objectType": obj.get("objectType", "Unknown"),
                     "position": obj.get("position", {"x": 0, "y": 0, "z": 0}),
-                    "distance": obj.get("distance", 0),
+                    "distance": distance,
                     "visible": True
                 })
 
