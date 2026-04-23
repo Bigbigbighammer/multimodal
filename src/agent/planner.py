@@ -305,6 +305,11 @@ class PlannerAgent:
             state["retry_count"] = 0
             state["error"] = None
             logger.info(f"Subgoal verified: moving to next subgoal")
+
+            # Check if all subgoals are complete
+            if state["current_subgoal_idx"] >= len(subgoals):
+                state["status"] = "done"
+                logger.info("All subgoals completed successfully")
         else:
             # Record failure
             state["error"] = verification_result.message
@@ -501,6 +506,9 @@ class PlannerAgent:
                     self._state["status"] = "done"
                 elif next_action == "retry" or next_action == "replan":
                     self._state = self._adapt_node(self._state)
+
+                # Continue loop to check final status
+                continue
 
             elif status == "done":
                 break
