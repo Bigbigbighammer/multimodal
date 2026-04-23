@@ -228,6 +228,9 @@ class PlannerAgent:
             EnvironmentObservation with visible objects, position, etc.
         """
         try:
+            # First, do a Pass action to get fresh observation from THOR
+            self._controller.step("Pass")
+
             observation = self._controller.get_current_observation()
             state = self._controller.get_current_state()
 
@@ -239,6 +242,8 @@ class PlannerAgent:
                     "distance": obj.get("distance", 0),
                     "position": obj.get("position", {"x": 0, "y": 0, "z": 0})
                 })
+
+            logger.info(f"Environment observation: {len(visible_objects)} visible objects")
 
             return EnvironmentObservation(
                 visible_objects=visible_objects,
