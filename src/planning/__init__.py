@@ -6,6 +6,7 @@ This module provides:
 - Recovery strategies for handling subgoal failures
 - Verification methods for checking subgoal completion
 - Task decomposition using LLM or templates
+- Environment observation for perception-aware planning
 """
 
 from src.planning.recovery import (
@@ -21,6 +22,7 @@ from src.planning.task_decomposer import (
     Subgoal,
     TaskDecomposition,
     TaskDecomposer,
+    EnvironmentObservation,
 )
 
 __all__ = [
@@ -32,4 +34,5 @@ __all__ = [
     "Subgoal",
     "TaskDecomposition",
     "TaskDecomposer",
+    "EnvironmentObservation",
 ]

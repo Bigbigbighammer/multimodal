@@ -5,13 +5,14 @@ This module uses LangChain with LLM to decompose high-level task
 instructions into executable subgoals.
 
 Key components:
+- EnvironmentObservation: Dataclass for current environment state
 - TaskDecomposition: Pydantic model for structured decomposition output
 - Subgoal: Pydantic model for individual subgoals
 - TaskDecomposer: Class that performs task decomposition using LLM
 """
 
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
 import logging
 import json
 
@@ -20,6 +21,75 @@ from pydantic import BaseModel, Field
 from src.config.settings import Settings, default_settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EnvironmentObservation:
+    """
+    Current environment state for perception-aware planning.
+
+    Attributes:
+        visible_objects: List of visible objects with name, distance, position.
+        agent_position: Current agent position {x, y, z}.
+        held_object: Object currently held by agent, if any.
+        agent_rotation: Current agent rotation {x, y, z}.
+    """
+    visible_objects: List[Dict[str, Any]] = field(default_factory=list)
+    agent_position: Dict[str, float] = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
+    held_object: Optional[str] = None
+    agent_rotation: Dict[str, float] = field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
+
+    def has_visible_object(self, name: str, max_distance: float = 2.0) -> Optional[Dict[str, Any]]:
+        """
+        Check if an object with given name is visible and within distance.
+
+        Args:
+            name: Object name to search for.
+            max_distance: Maximum distance threshold.
+
+        Returns:
+            Matching object dict if found, None otherwise.
+        """
+        name_lower = name.lower()
+        for obj in self.visible_objects:
+            obj_name = obj.get("name", obj.get("objectType", "")).lower()
+            if name_lower in obj_name or obj_name in name_lower:
+                distance = obj.get("distance", float('inf'))
+                if distance <= max_distance:
+                    return obj
+        return None
+
+    def to_prompt_string(self) -> str:
+        """
+        Format environment for LLM prompt.
+
+        Returns:
+            Human-readable string describing environment.
+        """
+        lines = []
+
+        if self.visible_objects:
+            lines.append("Visible Objects:")
+            # Sort by distance
+            sorted_objects = sorted(
+                self.visible_objects,
+                key=lambda x: x.get("distance", float('inf'))
+            )
+            for obj in sorted_objects[:15]:  # Limit to 15 for prompt
+                name = obj.get("name", obj.get("objectType", "Unknown"))
+                distance = obj.get("distance", 0)
+                lines.append(f"  - {name} ({distance:.1f}m)")
+            if len(self.visible_objects) > 15:
+                lines.append(f"  ... and {len(self.visible_objects) - 15} more")
+        else:
+            lines.append("No visible objects.")
+
+        if self.held_object:
+            lines.append(f"Holding: {self.held_object}")
+
+        lines.append(f"Position: ({self.agent_position['x']:.1f}, {self.agent_position['z']:.1f})")
+
+        return "\n".join(lines)
 
 
 class Subgoal(BaseModel):
@@ -167,16 +237,22 @@ class TaskDecomposer:
     """
 
     # Prompt template for LLM decomposition
-    DECOMPOSITION_PROMPT = """You are an embodied AI agent planning system.
-Given a task instruction, decompose it into a MINIMAL sequence of executable subgoals.
+    DECOMPOSITION_PROMPT = """You are an embodied AI agent in a home environment.
 
-IMPORTANT RULES:
-1. Keep it SIMPLE - use the FEWEST subgoals possible
-2. For "find X" tasks: just ONE navigate subgoal to X
-3. For "pick up X" tasks: navigate to X, then pickup X (2 subgoals max)
-4. For "open X" tasks: navigate to X, then open X (2 subgoals max)
-5. Do NOT add unnecessary exploration steps
-6. Do NOT decompose into multiple locations unless explicitly requested
+## Current Environment State
+{environment_section}
+
+## Task
+{task}
+
+## CRITICAL RULES
+1. Check if target is already visible in the environment
+2. If target is visible and close (< 2m), plan ONLY: navigate to it
+3. Keep plans MINIMAL - use FEWEST subgoals possible
+4. Do NOT add exploration steps unless target is not visible
+5. For "find X" tasks: ONE navigate subgoal if visible, otherwise explore
+6. For "pick up X" tasks: navigate + pickup (2 subgoals max)
+7. For "open X" tasks: navigate + open (2 subgoals max)
 
 Available actions:
 - navigate: Move to find/reach a target object or location
@@ -184,8 +260,6 @@ Available actions:
 - put: Put down an object at a location
 - open: Open an object (door, fridge, drawer, etc.)
 - close: Close an object
-
-Task: {task}
 
 Return your response as JSON with this structure:
 {{
@@ -267,35 +341,54 @@ Return your response as JSON with this structure:
             logger.warning(f"Failed to initialize LLM: {e}. Using template-based decomposition.")
             self._llm = None
 
-    def decompose(self, instruction: str) -> TaskDecomposition:
+    def decompose(
+        self,
+        instruction: str,
+        environment: Optional[EnvironmentObservation] = None
+    ) -> TaskDecomposition:
         """
         Decompose a task instruction into subgoals.
 
         Args:
             instruction: The task instruction to decompose.
+            environment: Current environment observation (optional).
 
         Returns:
             TaskDecomposition with subgoals and metadata.
         """
         # Try LLM decomposition if available
         if self._use_llm and self._llm is not None:
-            return self._decompose_with_llm(instruction)
+            return self._decompose_with_llm(instruction, environment)
 
         # Fall back to template-based decomposition
-        return self._decompose_with_templates(instruction)
+        return self._decompose_with_templates(instruction, environment)
 
-    def _decompose_with_llm(self, instruction: str) -> TaskDecomposition:
+    def _decompose_with_llm(
+        self,
+        instruction: str,
+        environment: Optional[EnvironmentObservation] = None
+    ) -> TaskDecomposition:
         """
         Use LLM to decompose the task.
 
         Args:
             instruction: The task instruction.
+            environment: Current environment observation.
 
         Returns:
             TaskDecomposition from LLM response.
         """
         try:
-            prompt = self.DECOMPOSITION_PROMPT.format(task=instruction)
+            # Format environment section
+            if environment:
+                env_section = environment.to_prompt_string()
+            else:
+                env_section = "No environment information available."
+
+            prompt = self.DECOMPOSITION_PROMPT.format(
+                task=instruction,
+                environment_section=env_section
+            )
             response = self._llm.invoke(prompt)
 
             # Parse JSON response
@@ -325,22 +418,78 @@ Return your response as JSON with this structure:
 
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse LLM response: {e}. Using template-based.")
-            return self._decompose_with_templates(instruction)
+            return self._decompose_with_templates(instruction, environment)
         except Exception as e:
             logger.warning(f"LLM decomposition failed: {e}. Using template-based.")
-            return self._decompose_with_templates(instruction)
+            return self._decompose_with_templates(instruction, environment)
 
-    def _decompose_with_templates(self, instruction: str) -> TaskDecomposition:
+    def _decompose_with_templates(
+        self,
+        instruction: str,
+        environment: Optional[EnvironmentObservation] = None
+    ) -> TaskDecomposition:
         """
         Use templates for decomposition (vision-only mode).
 
         Args:
             instruction: The task instruction.
+            environment: Current environment observation.
 
         Returns:
             TaskDecomposition based on keyword matching.
         """
         instruction_lower = instruction.lower()
+
+        # Extract target from instruction
+        target = self._extract_target(instruction, "target_object")
+
+        # Check if target is already visible and close
+        if environment:
+            visible_target = environment.has_visible_object(target, max_distance=2.0)
+            if visible_target:
+                obj_name = visible_target.get("name", visible_target.get("objectType", target))
+                distance = visible_target.get("distance", 0)
+                logger.info(f"Target '{target}' visible at {distance:.1f}m - simple plan")
+
+                # Check if it's a pickup task
+                if "pick" in instruction_lower or "拿" in instruction_lower or "捡" in instruction_lower:
+                    return TaskDecomposition(
+                        task=instruction,
+                        subgoals=[
+                            Subgoal(
+                                id="subgoal_1",
+                                action="navigate",
+                                target=obj_name,
+                                description=f"Navigate to {obj_name} ({distance:.1f}m away)",
+                                dependencies=[]
+                            ),
+                            Subgoal(
+                                id="subgoal_2",
+                                action="pickup",
+                                target=obj_name,
+                                description=f"Pick up {obj_name}",
+                                dependencies=["subgoal_1"]
+                            )
+                        ],
+                        reasoning=f"Target {obj_name} visible at {distance:.1f}m",
+                        estimated_steps=3
+                    )
+                else:
+                    # Simple navigate task
+                    return TaskDecomposition(
+                        task=instruction,
+                        subgoals=[
+                            Subgoal(
+                                id="subgoal_1",
+                                action="navigate",
+                                target=obj_name,
+                                description=f"Navigate to {obj_name} ({distance:.1f}m away)",
+                                dependencies=[]
+                            )
+                        ],
+                        reasoning=f"Target {obj_name} visible at {distance:.1f}m",
+                        estimated_steps=2
+                    )
 
         # Match instruction to template
         for keyword, template in DEFAULT_DECOMPOSITIONS.items():

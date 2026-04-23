@@ -16,7 +16,7 @@ from src.agent.controller import ThorController, StepResult
 from src.agent.navigator import NavigatorAgent
 from src.planning.recovery import RecoveryAction, RecoveryResult, RecoveryStrategy
 from src.planning.verifier import Verifier, VerificationResult
-from src.planning.task_decomposer import TaskDecomposer, TaskDecomposition, Subgoal
+from src.planning.task_decomposer import TaskDecomposer, TaskDecomposition, Subgoal, EnvironmentObservation
 from src.perception.visual_encoder import VisualEncoder
 from src.perception.detector import ObjectDetector
 from src.config.settings import Settings, default_settings
@@ -200,8 +200,12 @@ class PlannerAgent:
         instruction = state["instruction"]
         logger.info(f"Planning: decomposing task '{instruction}'")
 
-        # Decompose the task
-        decomposition = self._decomposer.decompose(instruction)
+        # Gather current environment observation
+        environment = self._get_environment_observation()
+        logger.info(f"Environment: {len(environment.visible_objects)} visible objects")
+
+        # Decompose the task with environment context
+        decomposition = self._decomposer.decompose(instruction, environment)
 
         # Update state
         state["decomposition"] = decomposition.model_dump()
@@ -215,6 +219,37 @@ class PlannerAgent:
         )
 
         return state
+
+    def _get_environment_observation(self) -> EnvironmentObservation:
+        """
+        Gather current environment state for perception-aware planning.
+
+        Returns:
+            EnvironmentObservation with visible objects, position, etc.
+        """
+        try:
+            observation = self._controller.get_current_observation()
+            state = self._controller.get_current_state()
+
+            # Format visible objects
+            visible_objects = []
+            for obj in observation.visible_objects:
+                visible_objects.append({
+                    "name": obj.get("objectType", "Unknown"),
+                    "distance": obj.get("distance", 0),
+                    "position": obj.get("position", {"x": 0, "y": 0, "z": 0})
+                })
+
+            return EnvironmentObservation(
+                visible_objects=visible_objects,
+                agent_position=dict(state.position),
+                held_object=state.held_object,
+                agent_rotation=dict(state.rotation)
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to get environment observation: {e}")
+            return EnvironmentObservation()
 
     def _execute_node(self, state: AgentState) -> AgentState:
         """
